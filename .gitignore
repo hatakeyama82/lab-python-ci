@@ -1,0 +1,30 @@
+# Scannerが実行時に作る作業データ。
+.scannerwork/
+.sonar/
+
+# Pythonのキャッシュ。
+__pycache__/
+*.pyc
+
+# ローカルの仮想環境。
+.venv/
+
+# 秘密鍵・認証情報を入れたファイルを誤って追加しないため。
+*.key
+*.pem
+.env
+.env.*
+
+# 公開証明書certs/sonarqube.crtは登録するので除外しない。
+
+
+# Scannerの作業ディレクトリ。解析結果はSonarQubeで管理する。
+.scannerwork/
+.sonar/
+# 秘密鍵・秘密ファイル・バックアップの誤登録を防ぐ。
+*.key
+*.pem
+*.dump
+.env
+sonar-backup-*/
+__pycache__/

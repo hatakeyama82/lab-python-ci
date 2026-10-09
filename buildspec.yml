@@ -1,0 +1,82 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    SCANNER_VERSION: '8.1.0.6389'
+
+phases:
+  install:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+
+        mkdir -p /tmp/sonar-tools
+
+        curl -fsSL --retry 3 \
+          "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" \
+          -o /tmp/sonar-tools/scanner.zip
+
+        unzip -qo /tmp/sonar-tools/scanner.zip -d /tmp/sonar-tools
+
+        export SCANNER_HOME="/tmp/sonar-tools/sonar-scanner-${SCANNER_VERSION}-linux-x64"
+
+        test -s "$CODEBUILD_SRC_DIR/certs/sonarqube.crt"
+
+        "$SCANNER_HOME/jre/bin/keytool" -importcert -noprompt \
+          -alias lab-sonarqube \
+          -file "$CODEBUILD_SRC_DIR/certs/sonarqube.crt" \
+          -keystore /tmp/sonar-tools/truststore.p12 \
+          -storetype PKCS12 \
+          -storepass changeit
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+
+        cd "$CODEBUILD_SRC_DIR"
+
+        test -s sonar-project.properties
+        test -d src
+
+        : "${SONAR_TOKEN:?SONAR_TOKEN is missing}"
+        : "${SONAR_HOST_URL:?SONAR_HOST_URL is missing}"
+
+        printf 'Source revision: %s\n' "$CODEBUILD_RESOLVED_SOURCE_VERSION"
+
+        curl -fsS --connect-timeout 10 --max-time 30 \
+          --cacert certs/sonarqube.crt \
+          "$SONAR_HOST_URL/api/system/status" \
+          -o /tmp/sonar-tools/status.json
+
+        python3 -c 'import json,sys; s=json.load(open("/tmp/sonar-tools/status.json")); print("SonarQube status:",s.get("status")); sys.exit(0 if s.get("status")=="UP" else 1)'
+
+  build:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+
+        cd "$CODEBUILD_SRC_DIR"
+
+        if "$SCANNER_HOME/bin/sonar-scanner" \
+          "-Dsonar.projectBaseDir=$CODEBUILD_SRC_DIR" \
+          -Dsonar.scm.disabled=true \
+          "-Dsonar.scm.revision=$CODEBUILD_RESOLVED_SOURCE_VERSION" \
+          -Dsonar.scanner.truststorePath=/tmp/sonar-tools/truststore.p12 \
+          -Dsonar.scanner.truststorePassword=changeit \
+          -Dsonar.qualitygate.wait=true \
+          -Dsonar.qualitygate.timeout=300; then
+          scan_rc=0
+        else
+          scan_rc=$?
+        fi
+
+        unset SONAR_TOKEN
+
+        printf 'Scanner exit code: %s\n' "$scan_rc"
+
+        exit "$scan_rc"
